@@ -1,5 +1,4 @@
-
-import { useState } from 'react'
+﻿import { useState, useEffect } from 'react'
 import {
   Activity,
   ArrowRight,
@@ -23,6 +22,15 @@ import {
   RotateCcw,
   Save,
 } from 'lucide-react'
+import {
+  getSectors,
+  getEvents,
+  runStressTest as apiRunStressTest,
+  saveScenario as apiSaveScenario,
+  getScenarios,
+} from './api/client.js'
+
+
 
 const navigation = [
   { id: 'overview', label: 'City Overview', icon: LayoutDashboard },
@@ -33,6 +41,8 @@ const navigation = [
   { id: 'methodology', label: 'Methodology', icon: FileText },
 ]
 
+
+
 const descriptions = {
   overview: 'Explore modeled city-sector risks and recent civic events.',
   'stress-test': 'Configure hypothetical scenarios and examine possible outcomes.',
@@ -42,7 +52,10 @@ const descriptions = {
   methodology: 'Understand the model, assumptions, and data provenance.',
 }
 
-const sectors = [
+
+
+// Static fallback — replaced by live API data when backend is available
+const staticSectors = [
   { id: '01', x: 15, y: 20, risk: 32 },
   { id: '02', x: 30, y: 15, risk: 48 },
   { id: '03', x: 48, y: 22, risk: 65 },
@@ -56,6 +69,8 @@ const sectors = [
   { id: '11', x: 52, y: 70, risk: 59 },
   { id: '12', x: 68, y: 80, risk: 24 },
 ]
+
+
 
 const initialEvents = [
   {
@@ -88,6 +103,8 @@ const initialEvents = [
   },
 ]
 
+
+
 const defaultScenario = {
   rainfall: 60,
   debris: 'High',
@@ -95,6 +112,8 @@ const defaultScenario = {
   traffic: 'Peak',
   temperature: 38,
 }
+
+
 
 function RiskBadge({ risk }) {
   const color =
@@ -104,14 +123,20 @@ function RiskBadge({ risk }) {
         ? 'bg-amber-50 text-amber-700'
         : 'bg-emerald-50 text-emerald-700'
 
+
+
   const label = risk >= 70 ? 'High' : risk >= 40 ? 'Moderate' : 'Low'
+
+
 
   return (
     <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${color}`}>
-      {label} · {risk}
+      {label} Â· {risk}
     </span>
   )
 }
+
+
 
 function SectionHeading({ eyebrow, title, description }) {
   return (
@@ -131,22 +156,75 @@ function SectionHeading({ eyebrow, title, description }) {
   )
 }
 
+
+
 function App() {
   const [activePage, setActivePage] = useState('overview')
   const [selectedSector, setSelectedSector] = useState('07')
   const [sidebarOpen, setSidebarOpen] = useState(false)
+
+
 
   const [scenario, setScenario] = useState({ ...defaultScenario })
   const [lastRun, setLastRun] = useState({ ...defaultScenario })
   const [scenarioRun, setScenarioRun] = useState(true)
   const [savedScenario, setSavedScenario] = useState(null)
 
+
+
   const [events, setEvents] = useState(initialEvents)
   const [reportMessage, setReportMessage] = useState('')
+  // ── API / backend integration state ──────────────────────────────────────
+  const [sectors, setSectors] = useState(staticSectors)
+  const [backendStatus, setBackendStatus] = useState('unknown') // 'unknown' | 'online' | 'offline'
+  const [stressTestLoading, setStressTestLoading] = useState(false)
+  const [apiRisk, setApiRisk] = useState(null)       // score from backend engine
+  const [apiRiskLabel, setApiRiskLabel] = useState(null) // score_label / data_status from backend
+  const [saveStatus, setSaveStatus] = useState(null) // 'saving' | 'saved' | 'error'
+
+  // On mount: probe backend by fetching sectors
+  useEffect(() => {
+    getSectors()
+      .then((data) => {
+        setBackendStatus('online')
+        if (Array.isArray(data) && data.length > 0 && data[0].id !== undefined && data[0].risk !== undefined) {
+          setSectors((prev) =>
+            prev.map((s) => {
+              const live = data.find((d) => String(d.id) === String(s.id))
+              return live ? { ...s, risk: live.risk } : s
+            })
+          )
+        }
+      })
+      .catch(() => setBackendStatus('offline'))
+  }, [])
+
+  // When selectedSector changes and backend is online, refresh events list
+  useEffect(() => {
+    if (backendStatus !== 'online') return
+    getEvents(selectedSector)
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          const mapped = data.map((ev) => ({
+            time: ev.time ?? ev.timestamp ?? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            category: ev.category ?? ev.type ?? 'Unknown',
+            sector: ev.sector ?? Sector ,
+            severity: ev.severity ?? 'Moderate',
+            status: ev.status ?? 'Unverified',
+          }))
+          setEvents(mapped)
+        }
+      })
+      .catch(() => { /* keep existing events list */ })
+  }, [selectedSector, backendStatus])
+
+
 
   const currentPage = navigation.find((item) => item.id === activePage)
   const CurrentPageIcon = currentPage.icon
   const selected = sectors.find((sector) => sector.id === selectedSector)
+
+
 
   // Illustrative frontend-only score. Not a validated risk model.
   const calculateRisk = (values) =>
@@ -176,28 +254,64 @@ function App() {
       ),
     )
 
+
+
   const modeledRisk = calculateRisk(lastRun)
   const currentRisk = calculateRisk(scenario)
+
+
 
   function updateScenario(field, value) {
     setScenario((previous) => ({ ...previous, [field]: value }))
     setScenarioRun(false)
   }
 
+
+
   function runStressTest() {
     setLastRun({ ...scenario })
     setScenarioRun(true)
+    setApiRisk(null)
+    setApiRiskLabel(null)
+
+    if (backendStatus === 'online') {
+      setStressTestLoading(true)
+      apiRunStressTest(scenario)
+        .then((result) => {
+          const score =
+            result.risk ?? result.risk_score ?? result.score ?? result.waterlogging_risk ?? null
+          if (score !== null && !Number.isNaN(Number(score))) {
+            setApiRisk(Math.round(Number(score)))
+          }
+          setApiRiskLabel(result.score_label ?? result.data_status ?? null)
+        })
+        .catch(() => { /* frontend calc remains */ })
+        .finally(() => setStressTestLoading(false))
+    }
   }
+
+
 
   function resetScenario() {
     setScenario({ ...defaultScenario })
     setLastRun({ ...defaultScenario })
     setScenarioRun(true)
+    setApiRisk(null)
+    setApiRiskLabel(null)
   }
+
+
 
   function saveScenario() {
     setSavedScenario({ ...scenario })
+    setSaveStatus('saving')
+    apiSaveScenario(scenario)
+      .then(() => setSaveStatus('saved'))
+      .catch(() => setSaveStatus('error'))
+      .finally(() => setTimeout(() => setSaveStatus(null), 3000))
   }
+
+
 
   function openPage(page) {
     setActivePage(page)
@@ -205,8 +319,12 @@ function App() {
     setReportMessage('')
   }
 
+
+
   function submitDemoReport(event) {
     event.preventDefault()
+
+
 
     const form = new FormData(event.currentTarget)
     const category = form.get('category')
@@ -214,10 +332,14 @@ function App() {
     const severity = form.get('severity')
     const description = form.get('description')
 
+
+
     if (!description.trim()) {
       setReportMessage('Please enter a description.')
       return
     }
+
+
 
     const newEvent = {
       time: new Date().toLocaleTimeString([], {
@@ -230,10 +352,14 @@ function App() {
       status: 'Unverified',
     }
 
+
+
     setEvents((previous) => [newEvent, ...previous])
     setReportMessage('Demo report added successfully.')
     event.currentTarget.reset()
   }
+
+
 
   return (
     <div className="min-h-screen bg-[#f3f5f9] text-[#17243b]">
@@ -244,6 +370,8 @@ function App() {
           onClick={() => setSidebarOpen(false)}
         />
       )}
+
+
 
       {/* Sidebar */}
       <aside
@@ -267,22 +395,28 @@ function App() {
           </button>
         </div>
 
+
+
         <div className="px-6 pb-3 pt-8 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
           Workspace
         </div>
+
+
 
         <nav className="space-y-1 px-3">
           {navigation.map((item) => {
             const Icon = item.icon
             const selectedNav = activePage === item.id
 
+
+
             return (
               <button
                 key={item.id}
                 onClick={() => openPage(item.id)}
                 className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm transition ${selectedNav
-                    ? 'bg-[#203957] font-semibold text-white'
-                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                  ? 'bg-[#203957] font-semibold text-white'
+                  : 'text-slate-300 hover:bg-white/5 hover:text-white'
                   }`}
               >
                 <Icon size={18} strokeWidth={1.8} />
@@ -295,21 +429,49 @@ function App() {
           })}
         </nav>
 
+
+
         <div className="mt-auto p-4">
           <div className="rounded-xl border border-white/10 bg-[#152c4b] p-3">
-            <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-[#f6c768]">
-              <span className="h-2 w-2 rounded-full bg-[#f6c768]" />
-              Data mode: simulated
-            </div>
-            <p className="text-xs leading-5 text-slate-300">
-              Synthetic sample data. No live municipal systems are connected.
-            </p>
+            {backendStatus === 'online' ? (
+              <>
+                <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-[#20c7b2]">
+                  <span className="h-2 w-2 rounded-full bg-[#20c7b2]" />
+                  Backend: connected
+                </div>
+                <p className="text-xs leading-5 text-slate-300">
+                  Risk engine online. Scores are illustrative demo estimates.
+                </p>
+              </>
+            ) : backendStatus === 'offline' ? (
+              <>
+                <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-[#f6c768]">
+                  <span className="h-2 w-2 rounded-full bg-[#f6c768]" />
+                  Data mode: simulated
+                </div>
+                <p className="text-xs leading-5 text-slate-300">
+                  Synthetic sample data. Backend not reachable.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <span className="h-2 w-2 rounded-full bg-slate-400" />
+                  Data mode: simulated
+                </div>
+                <p className="text-xs leading-5 text-slate-300">
+                  Probing backend…
+                </p>
+              </>
+            )}
           </div>
           <p className="px-1 pb-1 pt-5 text-[10px] text-slate-500">
-            AI for DPI · Chandigarh
+            AI for DPI Â· Chandigarh
           </p>
         </div>
       </aside>
+
+
 
       {/* Main workspace */}
       <div className="min-h-screen lg:pl-[250px]">
@@ -320,6 +482,8 @@ function App() {
             Scores are illustrative demo estimates, not operational forecasts.
           </span>
         </div>
+
+
 
         <header className="flex min-h-[68px] items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-7">
           <div className="flex items-center gap-3">
@@ -335,7 +499,7 @@ function App() {
                 C3T / Workspace
               </p>
               <p className="mt-1 text-xs font-semibold text-slate-600">
-                Chandigarh · Urban resilience prototype
+                Chandigarh Â· Urban resilience prototype
               </p>
             </div>
           </div>
@@ -344,6 +508,8 @@ function App() {
             Prototype environment
           </div>
         </header>
+
+
 
         <main className="mx-auto max-w-[1500px] px-4 py-7 sm:px-7 sm:py-9">
           <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
@@ -362,6 +528,8 @@ function App() {
               </p>
             </div>
 
+
+
             {activePage !== 'stress-test' && (
               <button
                 onClick={() => openPage('stress-test')}
@@ -371,6 +539,8 @@ function App() {
               </button>
             )}
           </div>
+
+
 
           {/* CITY OVERVIEW */}
           {activePage === 'overview' && (
@@ -387,7 +557,7 @@ function App() {
                   {
                     label: 'High-risk sectors',
                     value: '04',
-                    note: 'Demo risk index ≥ 70',
+                    note: 'Demo risk index â‰¥ 70',
                     icon: AlertTriangle,
                     color: 'text-red-700 bg-red-50',
                   },
@@ -407,6 +577,8 @@ function App() {
                   },
                 ].map((card) => {
                   const Icon = card.icon
+
+
 
                   return (
                     <article
@@ -434,6 +606,8 @@ function App() {
                 })}
               </section>
 
+
+
               <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.55fr_1fr]">
                 <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5">
@@ -444,9 +618,11 @@ function App() {
                       </p>
                     </div>
                     <span className="rounded-md bg-slate-100 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                      Illustrative · Not to scale
+                      Illustrative Â· Not to scale
                     </span>
                   </div>
+
+
 
                   <div className="relative min-h-[340px] overflow-hidden bg-[#f7fafc] p-4 sm:p-6">
                     <svg
@@ -476,6 +652,8 @@ function App() {
                       />
                     </svg>
 
+
+
                     {sectors.map((sector) => (
                       <button
                         key={sector.id}
@@ -485,8 +663,8 @@ function App() {
                           top: `${sector.y}%`,
                         }}
                         className={`absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[3px] text-xs font-bold shadow-sm transition hover:scale-110 ${sector.id === selectedSector
-                            ? 'z-10 border-[#123b62] ring-4 ring-blue-100'
-                            : 'border-white'
+                          ? 'z-10 border-[#123b62] ring-4 ring-blue-100'
+                          : 'border-white'
                           } ${sector.risk >= 70
                             ? 'bg-red-200 text-red-900'
                             : sector.risk >= 50
@@ -498,6 +676,8 @@ function App() {
                         {sector.id}
                       </button>
                     ))}
+
+
 
                     <div className="absolute bottom-4 left-4 flex flex-wrap gap-3 rounded-lg border border-slate-200 bg-white/95 px-3 py-2 text-[10px] shadow-sm">
                       <span className="flex items-center gap-1.5">
@@ -516,6 +696,8 @@ function App() {
                   </div>
                 </article>
 
+
+
                 <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
@@ -529,9 +711,13 @@ function App() {
                     <RiskBadge risk={selected.risk} />
                   </div>
 
+
+
                   <p className="mt-5 text-sm font-semibold">
                     Modeled contributing factors
                   </p>
+
+
 
                   <div className="mt-4 space-y-4">
                     <div className="flex gap-3">
@@ -547,6 +733,8 @@ function App() {
                       </div>
                     </div>
 
+
+
                     <div className="flex gap-3">
                       <div className="h-9 w-9 shrink-0 rounded-lg bg-amber-50 p-2 text-amber-700">
                         <Trash2 size={18} />
@@ -559,6 +747,8 @@ function App() {
                         </p>
                       </div>
                     </div>
+
+
 
                     <div className="flex gap-3">
                       <div className="h-9 w-9 shrink-0 rounded-lg bg-red-50 p-2 text-red-700">
@@ -573,6 +763,8 @@ function App() {
                     </div>
                   </div>
 
+
+
                   <div className="mt-6 rounded-lg bg-slate-50 p-3">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       Provenance
@@ -583,6 +775,8 @@ function App() {
                     </p>
                   </div>
 
+
+
                   <button
                     onClick={() => openPage('risk-analysis')}
                     className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold hover:bg-slate-50"
@@ -592,12 +786,14 @@ function App() {
                 </article>
               </section>
 
+
+
               <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5">
                   <div>
                     <h2 className="font-semibold">Recent civic events</h2>
                     <p className="mt-1 text-xs text-slate-500">
-                      Sample records · Not connected to municipal systems
+                      Sample records Â· Not connected to municipal systems
                     </p>
                   </div>
                   <button
@@ -607,6 +803,8 @@ function App() {
                     View all reports <ArrowRight size={14} className="ml-1 inline" />
                   </button>
                 </div>
+
+
 
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[650px] text-left text-xs">
@@ -665,6 +863,8 @@ function App() {
             </>
           )}
 
+
+
           {/* STRESS-TEST LAB */}
           {activePage === 'stress-test' && (
             <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.9fr_1.1fr]">
@@ -680,6 +880,8 @@ function App() {
                     Adjust hypothetical inputs and run the demo calculation.
                   </p>
                 </div>
+
+
 
                 <div className="mb-6">
                   <div className="mb-2 flex items-center justify-between">
@@ -706,6 +908,8 @@ function App() {
                   </div>
                 </div>
 
+
+
                 <div className="mb-5">
                   <label htmlFor="debris" className="mb-2 block text-sm font-medium">
                     Waste / debris load
@@ -721,6 +925,8 @@ function App() {
                     <option>High</option>
                   </select>
                 </div>
+
+
 
                 <div className="mb-5">
                   <label htmlFor="drain" className="mb-2 block text-sm font-medium">
@@ -740,6 +946,8 @@ function App() {
                   </select>
                 </div>
 
+
+
                 <div className="mb-5">
                   <label htmlFor="traffic" className="mb-2 block text-sm font-medium">
                     Traffic load
@@ -756,13 +964,15 @@ function App() {
                   </select>
                 </div>
 
+
+
                 <div className="mb-6">
                   <div className="mb-2 flex items-center justify-between">
                     <label htmlFor="temperature" className="text-sm font-medium">
                       Temperature
                     </label>
                     <span className="text-sm font-bold">
-                      {scenario.temperature} °C
+                      {scenario.temperature} Â°C
                     </span>
                   </div>
                   <input
@@ -778,13 +988,15 @@ function App() {
                     className="w-full accent-orange-500"
                   />
                   <div className="mt-1 flex justify-between text-xs text-slate-400">
-                    <span>32 °C</span>
-                    <span>43 °C</span>
+                    <span>32 Â°C</span>
+                    <span>43 Â°C</span>
                   </div>
                   <p className="mt-2 text-xs leading-5 text-slate-500">
                     Heat is modeled separately and is excluded from waterlogging risk.
                   </p>
                 </div>
+
+
 
                 <div className="flex flex-wrap gap-3">
                   <button
@@ -801,6 +1013,8 @@ function App() {
                     <RotateCcw size={16} /> Reset
                   </button>
                 </div>
+
+
 
                 <div className="mt-3 flex gap-3">
                   <button
@@ -824,17 +1038,29 @@ function App() {
                   </button>
                 </div>
 
+
+
                 {savedScenario && (
                   <p className="mt-3 text-xs text-emerald-700">
                     <CheckCircle2 size={14} className="mr-1 inline" />
-                    Scenario saved for this session.
+                    {saveStatus === 'saving'
+                      ? 'Saving to backend…'
+                      : saveStatus === 'saved'
+                      ? 'Saved to backend and this session.'
+                      : saveStatus === 'error'
+                      ? 'Session saved (backend save failed).'
+                      : 'Scenario saved for this session.'}
                   </p>
                 )}
 
+
+
                 <p className="mt-4 text-center text-[10px] text-slate-400">
-                  Frontend-only demo calculation · Not a validated forecast
+                  Frontend-only demo calculation Â· Not a validated forecast
                 </p>
               </article>
+
+
 
               <div className="space-y-5">
                 <article className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -847,36 +1073,44 @@ function App() {
                         Overall modeled waterlogging risk
                       </h2>
                     </div>
-                    {scenarioRun && <RiskBadge risk={modeledRisk} />}
+                    {scenarioRun && <RiskBadge risk={apiRisk ?? modeledRisk} />}
                   </div>
+
+
 
                   <div className="mt-6 flex items-end gap-3">
                     <span className="text-6xl font-bold tracking-tight text-[#17243b]">
-                      {scenarioRun ? modeledRisk : '—'}
+                      {scenarioRun ? modeledRisk : 'â€”'}
                     </span>
                     <span className="mb-2 text-sm text-slate-400">
-                      / 100 demo index
+                      / 100 {apiRisk !== null ? (apiRiskLabel ?? 'engine index') : 'demo index'}
                     </span>
                   </div>
+
+
 
                   <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${modeledRisk >= 70
-                          ? 'bg-red-500'
-                          : modeledRisk >= 40
-                            ? 'bg-amber-400'
-                            : 'bg-emerald-500'
+                        ? 'bg-red-500'
+                        : modeledRisk >= 40
+                          ? 'bg-amber-400'
+                          : 'bg-emerald-500'
                         }`}
                       style={{ width: `${scenarioRun ? modeledRisk : 0}%` }}
                     />
                   </div>
 
+
+
                   <div className="mt-3 flex justify-between text-[10px] text-slate-400">
-                    <span>0 · Low</span>
-                    <span>40 · Moderate</span>
-                    <span>70 · High</span>
+                    <span>0 Â· Low</span>
+                    <span>40 Â· Moderate</span>
+                    <span>70 Â· High</span>
                     <span>100</span>
                   </div>
+
+
 
                   <p className="mt-5 text-sm font-semibold">
                     {scenarioRun
@@ -885,28 +1119,34 @@ function App() {
                         : modeledRisk >= 40
                           ? 'Moderate modeled risk'
                           : 'Low modeled risk'
-                      : 'Inputs changed — run the test again'}
+                      : 'Inputs changed â€” run the test again'}
                   </p>
+
+
 
                   <p className="mt-3 text-sm leading-6 text-slate-500">
                     {scenarioRun
-                      ? `Under the selected scenario of ${lastRun.rainfall} mm rainfall, ${lastRun.debris.toLowerCase()} debris, ${lastRun.drainCondition.toLowerCase()} drains and ${lastRun.traffic.toLowerCase()} traffic, the illustrative model produces a score of ${modeledRisk}.`
+                      ? `Under the selected scenario of ${lastRun.rainfall} mm rainfall, ${lastRun.debris.toLowerCase()} debris, ${lastRun.drainCondition.toLowerCase()} drains and ${lastRun.traffic.toLowerCase()} traffic, the ${apiRisk !== null ? 'backend engine' : 'illustrative model'} produces a score of ${apiRisk ?? modeledRisk}.`
                       : `Your new inputs would produce a demo score of ${currentRisk}. Run the test to apply the scenario.`}
                   </p>
                 </article>
+
+
 
                 <article className="rounded-xl border border-orange-200 bg-orange-50 p-5">
                   <div className="flex items-center gap-2 text-sm font-bold text-orange-900">
                     <Activity size={18} /> Separate heat-stress pathway
                   </div>
                   <p className="mt-3 text-3xl font-bold text-orange-900">
-                    {scenarioRun ? lastRun.temperature : scenario.temperature} °C
+                    {scenarioRun ? lastRun.temperature : scenario.temperature} Â°C
                   </p>
                   <p className="mt-2 text-sm leading-6 text-orange-800">
                     Heat stress is tracked independently. Temperature does not
                     increase the waterlogging score in this demo.
                   </p>
                 </article>
+
+
 
                 <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                   <h3 className="font-semibold">Scenario summary</h3>
@@ -942,6 +1182,8 @@ function App() {
             </section>
           )}
 
+
+
           {/* RISK ANALYSIS */}
           {activePage === 'risk-analysis' && (
             <>
@@ -950,6 +1192,8 @@ function App() {
                 title={`Why might sector ${selected.id} fail?`}
                 description="Explore the illustrative relationships between scenario inputs, intermediate states and possible consequences."
               />
+
+
 
               <div className="grid gap-5 lg:grid-cols-3">
                 {[
@@ -979,6 +1223,8 @@ function App() {
                   </article>
                 ))}
               </div>
+
+
 
               <article className="mt-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
                 <h3 className="font-semibold">Main contributing factors</h3>
@@ -1010,6 +1256,8 @@ function App() {
             </>
           )}
 
+
+
           {/* INTERVENTION PLANNER */}
           {activePage === 'interventions' && (
             <>
@@ -1018,6 +1266,8 @@ function App() {
                 title="Compare hypothetical actions"
                 description="Illustrative intervention comparisons based on the current demo scenario. The backend risk engine can replace these estimates later."
               />
+
+
 
               <div className="grid gap-5 sm:grid-cols-2">
                 <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1031,10 +1281,12 @@ function App() {
                     {Math.max(0, calculateRisk(scenario) - 17)}
                   </p>
                   <p className="mt-2 text-xs text-emerald-800">
-                    Example only · Not an engine result
+                    Example only Â· Not an engine result
                   </p>
                 </article>
               </div>
+
+
 
               <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
                 <table className="w-full min-w-[550px] text-left text-sm">
@@ -1049,21 +1301,23 @@ function App() {
                     <tr>
                       <td className="px-5 py-4 font-medium">Clear priority drain</td>
                       <td className="px-5 py-4">Drainage capacity</td>
-                      <td className="px-5 py-4">₹20,000</td>
+                      <td className="px-5 py-4">â‚¹20,000</td>
                     </tr>
                     <tr>
                       <td className="px-5 py-4 font-medium">Remove debris hotspot</td>
                       <td className="px-5 py-4">Waste accumulation</td>
-                      <td className="px-5 py-4">₹12,000</td>
+                      <td className="px-5 py-4">â‚¹12,000</td>
                     </tr>
                     <tr>
                       <td className="px-5 py-4 font-medium">Prepare traffic diversion</td>
                       <td className="px-5 py-4">Road exposure</td>
-                      <td className="px-5 py-4">₹8,000</td>
+                      <td className="px-5 py-4">â‚¹8,000</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
+
+
 
               <p className="mt-4 text-xs leading-5 text-slate-500">
                 All costs are fictional demo values. Actual intervention ranking and
@@ -1071,6 +1325,8 @@ function App() {
               </p>
             </>
           )}
+
+
 
           {/* CIVIC REPORTS */}
           {activePage === 'reports' && (
@@ -1081,12 +1337,18 @@ function App() {
                 description="Create a local demo record. Nothing is sent to a municipal system or backend."
               />
 
+
+
               <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
                 <form onSubmit={submitDemoReport} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                   <h3 className="font-semibold">New report</h3>
 
+
+
                   <label htmlFor="description" className="mb-2 mt-5 block text-sm font-medium">Description</label>
                   <textarea id="description" name="description" required rows="4" placeholder="Describe the observed urban issue..." className="w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-blue-500" />
+
+
 
                   <label htmlFor="category" className="mb-2 mt-4 block text-sm font-medium">Event category</label>
                   <select id="category" name="category" className="w-full rounded-lg border border-slate-200 bg-white p-3 text-sm">
@@ -1097,12 +1359,16 @@ function App() {
                     <option>Other</option>
                   </select>
 
+
+
                   <label htmlFor="sector" className="mb-2 mt-4 block text-sm font-medium">Sample sector</label>
                   <select id="sector" name="sector" className="w-full rounded-lg border border-slate-200 bg-white p-3 text-sm">
                     {sectors.map((sector) => (
                       <option key={sector.id} value={sector.id}>{sector.id}</option>
                     ))}
                   </select>
+
+
 
                   <label htmlFor="severity" className="mb-2 mt-4 block text-sm font-medium">Severity</label>
                   <select id="severity" name="severity" className="w-full rounded-lg border border-slate-200 bg-white p-3 text-sm">
@@ -1111,14 +1377,20 @@ function App() {
                     <option>High</option>
                   </select>
 
+
+
                   <button type="submit" className="mt-5 w-full rounded-lg bg-[#126bdf] px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700">
                     Submit demo report
                   </button>
+
+
 
                   {reportMessage && (
                     <p className="mt-3 text-sm text-teal-700">{reportMessage}</p>
                   )}
                 </form>
+
+
 
                 <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                   <h3 className="font-semibold">Recent reports</h3>
@@ -1128,7 +1400,7 @@ function App() {
                       <div key={`${event.time}-${index}`} className="flex items-start justify-between gap-3 py-4">
                         <div>
                           <p className="text-sm font-semibold">{event.category}</p>
-                          <p className="mt-1 text-xs text-slate-500">{event.sector} · {event.time}</p>
+                          <p className="mt-1 text-xs text-slate-500">{event.sector} Â· {event.time}</p>
                           <p className="mt-2 text-xs text-slate-400">{event.status}</p>
                         </div>
                         <RiskBadge risk={event.severity === 'High' ? 75 : event.severity === 'Moderate' ? 55 : 30} />
@@ -1140,6 +1412,8 @@ function App() {
             </>
           )}
 
+
+
           {/* METHODOLOGY */}
           {activePage === 'methodology' && (
             <>
@@ -1148,6 +1422,8 @@ function App() {
                 title="How C3T works"
                 description="C3T explores how hypothetical failures across drainage, waste and roads could interact, and how preventive actions might help."
               />
+
+
 
               <div className="grid gap-5 md:grid-cols-3">
                 {[
@@ -1175,29 +1451,35 @@ function App() {
                 ))}
               </div>
 
+
+
               <article className="mt-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
                 <h3 className="font-semibold">Limitations and responsible use</h3>
                 <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
-                  <li>• All current frontend records and sector geometry are synthetic.</li>
-                  <li>• Scores are illustrative demo indices, not calibrated probabilities.</li>
-                  <li>• Intervention costs and effects are fictional examples.</li>
-                  <li>• Heat stress is a separate pathway and is excluded from waterlogging risk.</li>
-                  <li>• No live municipal system is connected.</li>
-                  <li>• The frontend calculations will need to be replaced by the team's backend risk engine.</li>
+                  <li>â€¢ All current frontend records and sector geometry are synthetic.</li>
+                  <li>â€¢ Scores are illustrative demo indices, not calibrated probabilities.</li>
+                  <li>â€¢ Intervention costs and effects are fictional examples.</li>
+                  <li>â€¢ Heat stress is a separate pathway and is excluded from waterlogging risk.</li>
+                  <li>â€¢ No live municipal system is connected.</li>
+                  <li>â€¢ The frontend calculations will need to be replaced by the team's backend risk engine.</li>
                 </ul>
               </article>
             </>
           )}
 
+
+
           <footer className="mt-8 border-t border-slate-200 py-5 text-center text-[10px] leading-5 text-slate-400">
-            C3T · AI for DPI · Chandigarh
+            C3T Â· AI for DPI Â· Chandigarh
             <br />
-            Simulated prototype · Not for operational decision-making
+            Simulated prototype Â· Not for operational decision-making
           </footer>
         </main>
       </div>
     </div>
   )
 }
+
+
 
 export default App
