@@ -24,7 +24,7 @@ Instead of asking *"Where is the current civic complaint?"*, C3T asks:
 
 | Member | Role | Owned Directory | Key Deliverables |
 |---|---|---|---|
-| **Aman Gairola** | Frontend & UI/UX Lead | `frontend/` | React/Vite/Tailwind dashboard with 6 screens: City Overview, Stress-Test Lab, Risk Analysis, Intervention Planner, Civic Reports, Methodology. |
+| **Aman Gairola** | Frontend & UI/UX Lead | `src/`, `public/` | React/Vite/Tailwind dashboard with 6 screens: City Overview, Stress-Test Lab, Risk Analysis, Intervention Planner, Civic Reports, Methodology. |
 | **Aman Gupta** | Backend & Data Lead | `backend/`, `data/`, `docs/api-contract.md` | FastAPI service, Pydantic schemas, REST endpoints, synthetic Chandigarh datasets, API contract coordination. |
 | **Ankit Yadav** | Risk Engine & Logic Lead | `risk_engine/` | Rule-based scoring, causal cascade failure graph, constrained intervention optimizer. |
 | **Aditya Raj** | AI Intake & QA Lead | `tests/`, `docs/demo-plan.md` | Test suite, integration validation, sample civic report corpus, hackathon demo flow. |
@@ -43,7 +43,7 @@ Instead of asking *"Where is the current civic complaint?"*, C3T asks:
 
 ```
 c3t-chandigarh-city-crash-test/
-├── backend/                  # Aman Gupta: FastAPI service
+├── backend/                  # FastAPI service
 │   ├── app/
 │   │   ├── main.py           # FastAPI entrypoint with CORS & error handlers
 │   │   ├── config.py         # Application settings
@@ -57,13 +57,20 @@ c3t-chandigarh-city-crash-test/
 │   │   ├── schemas/          # Pydantic v2 schemas
 │   │   └── storage/          # Thread-safe in-memory store & seeds
 │   └── README.md
-├── risk_engine/              # Ankit Yadav & Aman Gupta: Core logic package
+├── risk_engine/              # Core logic package
 │   ├── calculator.py         # Component & sector risk calculations
 │   ├── cascade.py            # Failure chain generator (modeled/hypothetical)
 │   ├── optimizer.py          # Constrained intervention optimizer
 │   ├── models.py             # Scenario and intervention data models
 │   └── tests/                # Direction-of-change and bounds unit tests
-├── data/                     # Aman Gupta: Shared synthetic & calibrated data
+├── src/                      # React frontend application
+│   ├── App.jsx               # Main interactive dashboard & stress lab
+│   ├── App.css               # Styling & layout rules
+│   ├── index.css             # Tailwind base and utility definitions
+│   ├── main.jsx              # Application entry point
+│   └── api/                  # API client integration
+├── public/                   # Static assets & icons
+├── data/                     # Shared synthetic & calibrated data
 │   ├── chandigarh_sectors.json
 │   ├── chandigarh_sectors.geojson
 │   ├── sample_civic_reports.json
@@ -72,13 +79,15 @@ c3t-chandigarh-city-crash-test/
 │   ├── api-contract.md       # Frozen API contract with examples
 │   ├── data-provenance.md    # Source calibration & ethics notes
 │   └── setup-guide.md        # Local environment setup instructions
-├── tests/                    # Aditya Raj: Integration tests
+├── tests/                    # Integration tests
 │   ├── test_health_api.py
 │   ├── test_sectors_api.py
 │   ├── test_stress_test_api.py
 │   ├── test_optimize_api.py
 │   ├── test_events_api.py
 │   └── test_scenarios_api.py
+├── package.json              # Frontend dependencies
+├── vite.config.js            # Vite configuration
 ├── .env.example
 ├── .gitignore
 ├── requirements.txt
@@ -89,24 +98,32 @@ c3t-chandigarh-city-crash-test/
 
 ## 🚀 Quick Start
 
-### 1. Install Dependencies
+### 1. Backend Setup
 ```bash
+# Install backend dependencies
 pip install -r requirements.txt
-```
 
-### 2. Run Test Suite (15 passing tests)
-```bash
+# Run backend test suite
 python -m pytest tests risk_engine/tests -v
-```
 
-### 3. Launch the Backend Server
-```bash
+# Launch the FastAPI backend server
 python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Interactive API documentation will be available at:  
-- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)  
+Interactive API documentation:
+- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+
+### 2. Frontend Setup
+```bash
+# Install frontend dependencies
+npm install
+
+# Launch Vite dev server
+npm run dev
+```
+
+The frontend dashboard will be available at [http://localhost:5173](http://localhost:5173).
 
 ---
 
