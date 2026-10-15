@@ -1,16 +1,137 @@
-# React + Vite
+# Chandigarh City Crash Test (C3T)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+> *"Stress-test the city before reality does."*
 
-Currently, two official plugins are available:
+An AI-powered urban stress testing and preventive decision intelligence platform for the digital public infrastructure of Chandigarh.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## 🎯 Executive Overview
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Municipal challenges are conventionally managed in silos—waste collection, stormwater drainage, traffic advisories, and emergency response. However, urban failures cascade across domains:
+- Rainfall + debris accumulation $\rightarrow$ clogged road gullies
+- Reduced drainage capacity $\rightarrow$ surface waterlogging
+- Waterlogged lanes $\rightarrow$ arterial traffic gridlock
+- Traffic choke points $\rightarrow$ delayed emergency response
 
-## Expanding the ESLint configuration
+**C3T** flips traditional civic-tech:
+Instead of asking *"Where is the current civic complaint?"*, C3T asks:  
+**"What is likely to fail next, why will it fail, and which preventive action gives the city the best risk reduction per unit resource?"**
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+---
+
+## 👥 Team Work Division & Ownership
+
+| Member | Role | Owned Directory | Key Deliverables |
+|---|---|---|---|
+| **Aman Gairola** | Frontend & UI/UX Lead | `src/`, `public/` | React/Vite/Tailwind dashboard with 6 screens: City Overview, Stress-Test Lab, Risk Analysis, Intervention Planner, Civic Reports, Methodology. |
+| **Aman Gupta** | Backend & Data Lead | `backend/`, `data/`, `docs/api-contract.md` | FastAPI service, Pydantic schemas, REST endpoints, synthetic Chandigarh datasets, API contract coordination. |
+| **Ankit Yadav** | Risk Engine & Logic Lead | `risk_engine/` | Rule-based scoring, causal cascade failure graph, constrained intervention optimizer. |
+| **Aditya Raj** | AI Intake & QA Lead | `tests/`, `docs/demo-plan.md` | Test suite, integration validation, sample civic report corpus, hackathon demo flow. |
+
+---
+
+## ⚖️ The Golden Rule
+
+> **Every simulated result is labeled illustrative / unvalidated.**  
+> We never present it as an actual forecast for Chandigarh.  
+> Every API response explicitly returns `data_status: "synthetic_demo"` and `score_label: "Unvalidated demo index (0-100)"`.
+
+---
+
+## 📂 Repository Structure
+
+```
+c3t-chandigarh-city-crash-test/
+├── backend/                  # FastAPI service
+│   ├── app/
+│   │   ├── main.py           # FastAPI entrypoint with CORS & error handlers
+│   │   ├── config.py         # Application settings
+│   │   ├── routers/          # API route handlers
+│   │   │   ├── health.py     # GET /health
+│   │   │   ├── sectors.py    # GET /api/sectors
+│   │   │   ├── events.py     # GET & POST /api/events
+│   │   │   ├── stress_test.py# POST /api/stress-test
+│   │   │   ├── optimize.py   # POST /api/optimize
+│   │   │   └── scenarios.py  # GET & POST /api/scenarios
+│   │   ├── schemas/          # Pydantic v2 schemas
+│   │   └── storage/          # Thread-safe in-memory store & seeds
+│   └── README.md
+├── risk_engine/              # Core logic package
+│   ├── calculator.py         # Component & sector risk calculations
+│   ├── cascade.py            # Failure chain generator (modeled/hypothetical)
+│   ├── optimizer.py          # Constrained intervention optimizer
+│   ├── models.py             # Scenario and intervention data models
+│   └── tests/                # Direction-of-change and bounds unit tests
+├── src/                      # React frontend application
+│   ├── App.jsx               # Main interactive dashboard & stress lab
+│   ├── App.css               # Styling & layout rules
+│   ├── index.css             # Tailwind base and utility definitions
+│   ├── main.jsx              # Application entry point
+│   └── api/                  # API client integration
+├── public/                   # Static assets & icons
+├── data/                     # Shared synthetic & calibrated data
+│   ├── chandigarh_sectors.json
+│   ├── chandigarh_sectors.geojson
+│   ├── sample_civic_reports.json
+│   └── default_scenarios.json
+├── docs/                     # Shared specifications & contract
+│   ├── api-contract.md       # Frozen API contract with examples
+│   ├── data-provenance.md    # Source calibration & ethics notes
+│   └── setup-guide.md        # Local environment setup instructions
+├── tests/                    # Integration tests
+│   ├── test_health_api.py
+│   ├── test_sectors_api.py
+│   ├── test_stress_test_api.py
+│   ├── test_optimize_api.py
+│   ├── test_events_api.py
+│   └── test_scenarios_api.py
+├── package.json              # Frontend dependencies
+├── vite.config.js            # Vite configuration
+├── .env.example
+├── .gitignore
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## 🚀 Quick Start
+
+### 1. Backend Setup
+```bash
+# Install backend dependencies
+pip install -r requirements.txt
+
+# Run backend test suite
+python -m pytest tests risk_engine/tests -v
+
+# Launch the FastAPI backend server
+python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Interactive API documentation:
+- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+
+### 2. Frontend Setup
+```bash
+# Install frontend dependencies
+npm install
+
+# Launch Vite dev server
+npm run dev
+```
+
+The frontend dashboard will be available at [http://localhost:5173](http://localhost:5173).
+
+---
+
+## ⚡ Key API Endpoints
+
+- `GET /health` - Health check & synthetic status
+- `GET /api/sectors` - Chandigarh sectors with vulnerability attributes & GeoJSON
+- `GET /api/events` · `POST /api/events` - Civic report intake & query
+- `POST /api/stress-test` - Run scenario simulation & cascade graph
+- `POST /api/optimize` - Compare candidate interventions under budget/team constraints
+- `GET /api/scenarios` · `POST /api/scenarios` - Save & load stress scenarios
