@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Activity,
   ArrowRight,
@@ -27,7 +27,6 @@ import {
   getEvents,
   runStressTest as apiRunStressTest,
   saveScenario as apiSaveScenario,
-  getScenarios,
 } from './api/client.js'
 
 
@@ -187,11 +186,12 @@ function App() {
     getSectors()
       .then((data) => {
         setBackendStatus('online')
-        if (Array.isArray(data) && data.length > 0 && data[0].id !== undefined && data[0].risk !== undefined) {
+        const list = Array.isArray(data) ? data : (data?.sectors || [])
+        if (list.length > 0) {
           setSectors((prev) =>
             prev.map((s) => {
-              const live = data.find((d) => String(d.id) === String(s.id))
-              return live ? { ...s, risk: live.risk } : s
+              const live = list.find((d) => String(d.sector_id || d.id) === `sector-${s.id}` || String(d.id || d.sector_id) === String(s.id))
+              return live ? { ...s, risk: Math.round(live.score ?? live.risk ?? s.risk) } : s
             })
           )
         }
@@ -204,11 +204,12 @@ function App() {
     if (backendStatus !== 'online') return
     getEvents(selectedSector)
       .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          const mapped = data.map((ev) => ({
-            time: ev.time ?? ev.timestamp ?? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        const list = Array.isArray(data) ? data : (data?.events || [])
+        if (list.length > 0) {
+          const mapped = list.map((ev) => ({
+            time: ev.time ?? (ev.reported_at ? new Date(ev.reported_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
             category: ev.category ?? ev.type ?? 'Unknown',
-            sector: ev.sector ?? Sector ,
+            sector: ev.sector ?? ev.sector_id ?? selectedSector,
             severity: ev.severity ?? 'Moderate',
             status: ev.status ?? 'Unverified',
           }))
@@ -279,7 +280,7 @@ function App() {
       apiRunStressTest(scenario)
         .then((result) => {
           const score =
-            result.risk ?? result.risk_score ?? result.score ?? result.waterlogging_risk ?? null
+            result.overall_score ?? result.risk ?? result.risk_score ?? result.score ?? result.waterlogging_risk ?? null
           if (score !== null && !Number.isNaN(Number(score))) {
             setApiRisk(Math.round(Number(score)))
           }
@@ -520,7 +521,8 @@ function App() {
                 ).padStart(2, '0')}{' '}
                 / C3T WORKSPACE
               </p>
-              <h1 className="text-2xl font-bold tracking-tight text-[#14243c] sm:text-3xl">
+              <h1 className="text-2xl font-bold tracking-tight text-[#14243c] sm:text-3xl flex items-center gap-2.5">
+                <CurrentPageIcon size={26} className="text-[#0b948b] shrink-0" />
                 {currentPage.label}
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
@@ -1001,9 +1003,10 @@ function App() {
                 <div className="flex flex-wrap gap-3">
                   <button
                     onClick={runStressTest}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#126bdf] px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+                    disabled={stressTestLoading}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#126bdf] px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
                   >
-                    <Activity size={16} /> Run Stress Test
+                    <Activity size={16} className={stressTestLoading ? "animate-spin" : ""} /> {stressTestLoading ? "Running Stress Test..." : "Run Stress Test"}
                   </button>
                   <button
                     onClick={resetScenario}
