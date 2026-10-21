@@ -1,5 +1,9 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env from workspace root
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
 
 class Settings:
@@ -8,6 +12,9 @@ class Settings:
     API_PREFIX: str = "/api"
     DATA_STATUS: str = "synthetic_demo"
     SCORE_LABEL: str = "Unvalidated demo index (0-100)"
+
+    # Gemini AI
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
     # Base Paths
     BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent

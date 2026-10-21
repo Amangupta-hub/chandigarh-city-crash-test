@@ -101,3 +101,30 @@ export function saveScenario(scenario) {
         body: JSON.stringify(adaptScenarioToBackend(scenario)),
     });
 }
+
+// ── Gemini AI endpoints ────────────────────────────────────────────────────
+
+export function getAIStatus() {
+    return request("/api/ai/status");
+}
+
+export function analyzeRisk(riskResult) {
+    return request("/api/ai/analyze", {
+        method: "POST",
+        body: JSON.stringify({ risk_result: riskResult }),
+    });
+}
+
+export function chatWithAI(question, context = null) {
+    return request("/api/ai/chat", {
+        method: "POST",
+        body: JSON.stringify({ question, context }),
+    });
+}
+
+export function extractComplaint(text) {
+    return request("/api/ai/complaint", {
+        method: "POST",
+        body: JSON.stringify({ text }),
+    });
+}

@@ -18,6 +18,7 @@ from backend.app.routers import (
     stress_test_router,
     optimize_router,
     scenarios_router,
+    ai_router,
 )
 
 app = FastAPI(
@@ -77,6 +78,7 @@ app.include_router(events_router)
 app.include_router(stress_test_router)
 app.include_router(optimize_router)
 app.include_router(scenarios_router)
+app.include_router(ai_router)
 
 
 @app.get("/", tags=["Root"])
@@ -94,6 +96,10 @@ def root():
             "stress_test": "/api/stress-test",
             "optimize": "/api/optimize",
             "scenarios": "/api/scenarios",
+            "ai_analyze": "/api/ai/analyze",
+            "ai_chat": "/api/ai/chat",
+            "ai_complaint": "/api/ai/complaint",
+            "ai_status": "/api/ai/status",
             "documentation": "/docs"
         },
         "team_lead": "Aman Gupta (Backend & Data Lead)"

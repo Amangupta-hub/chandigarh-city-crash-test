@@ -4,6 +4,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   BarChart3,
+  Bot,
   CheckCircle2,
   ClipboardList,
   Clock3,
@@ -15,18 +16,25 @@ import {
   LayoutDashboard,
   MapPin,
   Menu,
+  MessageSquare,
+  Send,
   ShieldCheck,
+  Sparkles,
   Trash2,
   X,
   AlertTriangle,
   RotateCcw,
   Save,
+  Zap,
 } from 'lucide-react'
 import {
   getSectors,
   getEvents,
   runStressTest as apiRunStressTest,
   saveScenario as apiSaveScenario,
+  analyzeRisk,
+  chatWithAI,
+  extractComplaint,
 } from './api/client.js'
 
 
@@ -37,6 +45,7 @@ const navigation = [
   { id: 'risk-analysis', label: 'Risk Analysis', icon: GitBranch },
   { id: 'interventions', label: 'Intervention Planner', icon: BarChart3 },
   { id: 'reports', label: 'Civic Reports', icon: ClipboardList },
+  { id: 'ai-chat', label: 'C3T-AI Chat', icon: Bot },
   { id: 'methodology', label: 'Methodology', icon: FileText },
 ]
 
@@ -48,6 +57,7 @@ const descriptions = {
   'risk-analysis': 'Understand modeled risk factors and possible failure cascades.',
   interventions: 'Compare hypothetical interventions within available resources.',
   reports: 'Record and review sample reports about urban issues.',
+  'ai-chat': 'Ask C3T-AI anything about urban risks, sectors, or scenarios.',
   methodology: 'Understand the model, assumptions, and data provenance.',
 }
 
@@ -181,6 +191,18 @@ function App() {
   const [apiRiskLabel, setApiRiskLabel] = useState(null) // score_label / data_status from backend
   const [saveStatus, setSaveStatus] = useState(null) // 'saving' | 'saved' | 'error'
 
+  // ── Gemini AI state ───────────────────────────────────────────────────────
+  const [aiNarrative, setAiNarrative] = useState(null)       // risk analysis narrative
+  const [aiNarrativeLoading, setAiNarrativeLoading] = useState(false)
+  const [aiRawResult, setAiRawResult] = useState(null)        // raw stress-test result for context
+  const [chatMessages, setChatMessages] = useState([          // AI Chat history
+    { role: 'assistant', text: '👋 Hi! I\'m **C3T-AI**, powered by Gemini. Ask me anything about Chandigarh\'s urban risks, stress-test results, or how this system works.' }
+  ])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [complaintAI, setComplaintAI] = useState(null)        // AI complaint extraction result
+  const [complaintAILoading, setComplaintAILoading] = useState(false)
+
   // On mount: probe backend by fetching sectors
   useEffect(() => {
     getSectors()
@@ -274,6 +296,7 @@ function App() {
     setScenarioRun(true)
     setApiRisk(null)
     setApiRiskLabel(null)
+    setAiNarrative(null)
 
     if (backendStatus === 'online') {
       setStressTestLoading(true)
@@ -285,6 +308,13 @@ function App() {
             setApiRisk(Math.round(Number(score)))
           }
           setApiRiskLabel(result.score_label ?? result.data_status ?? null)
+          setAiRawResult(result)
+          // Auto-trigger Gemini AI narrative
+          setAiNarrativeLoading(true)
+          analyzeRisk(result)
+            .then((r) => setAiNarrative(r.narrative))
+            .catch(() => setAiNarrative('⚠️ Gemini analysis unavailable. Check your API key.'))
+            .finally(() => setAiNarrativeLoading(false))
         })
         .catch(() => { /* frontend calc remains */ })
         .finally(() => setStressTestLoading(false))
@@ -299,6 +329,30 @@ function App() {
     setScenarioRun(true)
     setApiRisk(null)
     setApiRiskLabel(null)
+    setAiNarrative(null)
+    setAiRawResult(null)
+  }
+
+  function sendChatMessage() {
+    const q = chatInput.trim()
+    if (!q || chatLoading) return
+    setChatMessages((prev) => [...prev, { role: 'user', text: q }])
+    setChatInput('')
+    setChatLoading(true)
+    chatWithAI(q, aiRawResult)
+      .then((r) => setChatMessages((prev) => [...prev, { role: 'assistant', text: r.answer }]))
+      .catch(() => setChatMessages((prev) => [...prev, { role: 'assistant', text: '⚠️ Gemini request failed. Check your API key and backend.' }]))
+      .finally(() => setChatLoading(false))
+  }
+
+  function runComplaintExtraction(text) {
+    if (!text.trim()) return
+    setComplaintAILoading(true)
+    setComplaintAI(null)
+    extractComplaint(text)
+      .then((r) => setComplaintAI(r))
+      .catch(() => setComplaintAI({ notes: '⚠️ Gemini extraction failed. Check API key.' }))
+      .finally(() => setComplaintAILoading(false))
   }
 
 
@@ -1337,7 +1391,7 @@ function App() {
               <SectionHeading
                 eyebrow="05 / Civic reports"
                 title="Report an urban issue"
-                description="Create a local demo record. Nothing is sent to a municipal system or backend."
+                description="Create a local demo record. AI-powered extraction is available when the backend is online."
               />
 
 
@@ -1386,6 +1440,38 @@ function App() {
                     Submit demo report
                   </button>
 
+                  {/* Gemini AI Complaint Extraction */}
+                  {backendStatus === 'online' && (
+                    <div className="mt-4">
+                      <button
+                        type="button"
+                        id="ai-extract-btn"
+                        onClick={() => {
+                          const textarea = document.getElementById('description')
+                          if (textarea) runComplaintExtraction(textarea.value)
+                        }}
+                        disabled={complaintAILoading}
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-violet-300 bg-violet-50 px-4 py-2.5 text-sm font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                      >
+                        <Sparkles size={15} className={complaintAILoading ? 'animate-spin' : ''} />
+                        {complaintAILoading ? 'Analysing with Gemini…' : 'Extract with Gemini AI'}
+                      </button>
+                      {complaintAI && (
+                        <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs">
+                          <p className="font-bold text-violet-800 mb-2">🤖 Gemini Extraction Result</p>
+                          <div className="space-y-1 text-violet-700">
+                            <p><span className="font-semibold">Category:</span> {complaintAI.category}</p>
+                            <p><span className="font-semibold">Severity:</span> {complaintAI.severity}</p>
+                            <p><span className="font-semibold">Sector:</span> {complaintAI.sector_id ?? 'Not mentioned'}</p>
+                            <p><span className="font-semibold">Confidence:</span> {complaintAI.confidence ? `${Math.round(complaintAI.confidence * 100)}%` : 'N/A'}</p>
+                            <p className="text-violet-600 italic mt-1">{complaintAI.notes}</p>
+                            <p className="text-orange-700 font-semibold mt-1">⚠️ All fields require user confirmation</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
 
 
                   {reportMessage && (
@@ -1412,6 +1498,121 @@ function App() {
                   </div>
                 </article>
               </div>
+            </>
+          )}
+
+
+
+          {/* AI CHAT */}
+          {activePage === 'ai-chat' && (
+            <>
+              <SectionHeading
+                eyebrow="06 / C3T-AI"
+                title="Ask C3T-AI"
+                description="Powered by Google Gemini. Ask anything about risk scores, sectors, scenarios, or the C3T system."
+              />
+
+              <div className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden" style={{ height: '520px' }}>
+                {/* Chat header */}
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
+                    <Bot size={18} className="text-white" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-white">C3T-AI</p>
+                    <p className="text-[10px] text-violet-200">Powered by Google Gemini 1.5 Flash</p>
+                  </div>
+                  <span className="ml-auto flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 text-[10px] font-semibold text-white">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    {backendStatus === 'online' ? 'Online' : 'Backend offline'}
+                  </span>
+                </div>
+
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                  {chatMessages.map((msg, i) => (
+                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      {msg.role === 'assistant' && (
+                        <div className="mr-2 mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-100">
+                          <Sparkles size={13} className="text-violet-600" />
+                        </div>
+                      )}
+                      <div
+                        className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-6 ${
+                          msg.role === 'user'
+                            ? 'bg-[#126bdf] text-white rounded-br-none'
+                            : 'bg-slate-100 text-slate-800 rounded-bl-none'
+                        }`}
+                      >
+                        {msg.text}
+                      </div>
+                    </div>
+                  ))}
+                  {chatLoading && (
+                    <div className="flex justify-start">
+                      <div className="mr-2 mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-100">
+                        <Sparkles size={13} className="text-violet-600 animate-pulse" />
+                      </div>
+                      <div className="rounded-2xl rounded-bl-none bg-slate-100 px-4 py-3">
+                        <div className="flex gap-1">
+                          <span className="h-2 w-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <span className="h-2 w-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <span className="h-2 w-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Quick prompts */}
+                <div className="border-t border-slate-100 px-4 py-2 flex gap-2 overflow-x-auto">
+                  {[
+                    'What is C3T?',
+                    'Which sector is most at risk?',
+                    'Explain the cascade model',
+                    'What does rainfall_mm mean?',
+                  ].map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => { setChatInput(q) }}
+                      className="shrink-0 rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-[11px] font-medium text-violet-700 hover:bg-violet-100"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Input */}
+                <div className="border-t border-slate-100 p-4 flex gap-3">
+                  <input
+                    id="chat-input"
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && sendChatMessage()}
+                    placeholder={backendStatus === 'online' ? 'Ask C3T-AI anything…' : 'Start backend to enable chat'}
+                    disabled={backendStatus !== 'online' || chatLoading}
+                    className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-violet-400 disabled:bg-slate-50 disabled:opacity-60"
+                  />
+                  <button
+                    id="chat-send-btn"
+                    onClick={sendChatMessage}
+                    disabled={!chatInput.trim() || chatLoading || backendStatus !== 'online'}
+                    className="flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+                  >
+                    <Send size={15} />
+                  </button>
+                </div>
+              </div>
+
+              <article className="mt-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Context sent to Gemini</p>
+                <p className="text-sm text-slate-600">
+                  {aiRawResult
+                    ? `✅ Latest stress-test result (score: ${aiRawResult.overall_score}) is included in every message as context.`
+                    : '⚠️ No stress-test result yet. Run a stress test first for richer AI answers.'}
+                </p>
+              </article>
             </>
           )}
 
