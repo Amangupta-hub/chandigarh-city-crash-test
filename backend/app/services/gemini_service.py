@@ -28,13 +28,13 @@ logger = logging.getLogger(__name__)
 # Initialise Gemini client once at import time
 # ---------------------------------------------------------------------------
 
-_GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+_DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
 
 if HAS_GENAI and _GEMINI_API_KEY:
     try:
         genai.configure(api_key=_GEMINI_API_KEY)
         _MODEL = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
+            model_name=_DEFAULT_MODEL,
             generation_config={
                 "temperature": 0.4,
                 "top_p": 0.9,
@@ -56,16 +56,49 @@ else:
 # Internal helper
 # ---------------------------------------------------------------------------
 
+def _get_generative_model(model_name: Optional[str] = None):
+    """Return a GenerativeModel instance with fallback."""
+    name = model_name or os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+    return genai.GenerativeModel(
+        model_name=name,
+        generation_config={
+            "temperature": 0.4,
+            "top_p": 0.9,
+            "max_output_tokens": 1024,
+        },
+    )
+
+
 def _call_gemini(prompt: str) -> str:
-    """Send a prompt to Gemini and return the text response."""
-    if not GEMINI_AVAILABLE or _MODEL is None:
+    """Send a prompt to Gemini and return the text response with model fallbacks."""
+    if not GEMINI_AVAILABLE or not HAS_GENAI:
         return "⚠️ Gemini API key not configured. Please set GEMINI_API_KEY in your .env file."
-    try:
-        response = _MODEL.generate_content(prompt)
-        return response.text.strip()
-    except Exception as exc:
-        logger.error("Gemini API call failed: %s", exc)
-        return f"⚠️ Gemini request failed: {exc}"
+
+    models_to_try = [
+        os.getenv("GEMINI_MODEL", "gemini-flash-latest"),
+        "gemini-flash-latest",
+        "gemini-3.8-flash",
+    ]
+    seen = set()
+    models_to_try = [m for m in models_to_try if not (m in seen or seen.add(m))]
+
+    last_error = ""
+    for name in models_to_try:
+        try:
+            m = _get_generative_model(name)
+            response = m.generate_content(prompt)
+            if response and response.text:
+                return response.text.strip()
+        except Exception as exc:
+            last_error = str(exc)
+            if "404" in last_error or "not found" in last_error.lower():
+                continue
+            break
+
+    logger.error("Gemini API call failed: %s", last_error)
+    if "429" in last_error or "quota" in last_error.lower():
+        return "⚠️ Gemini API rate limit reached. Please wait a minute before sending another message."
+    return f"⚠️ Gemini request failed: {last_error}"
 
 
 # ---------------------------------------------------------------------------

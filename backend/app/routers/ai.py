@@ -155,7 +155,7 @@ def gemini_status():
     """Check whether Gemini API is configured and verify multimodal vision support."""
     return GeminiStatusResponse(
         gemini_available=GEMINI_AVAILABLE,
-        model="gemini-1.5-flash" if GEMINI_AVAILABLE else "simulated-multimodal",
+        model=os.getenv("GEMINI_MODEL", "gemini-flash-latest") if GEMINI_AVAILABLE else "simulated-multimodal",
         message=(
             "Gemini Multimodal Vision API is active and ready."
             if GEMINI_AVAILABLE
