@@ -115,10 +115,10 @@ export function analyzeRisk(riskResult) {
     });
 }
 
-export function chatWithAI(question, context = null) {
+export function chatWithAI(question, context = null, imageBase64 = null, mimeType = 'image/jpeg') {
     return request("/api/ai/chat", {
         method: "POST",
-        body: JSON.stringify({ question, context }),
+        body: JSON.stringify({ question, context, image_base64: imageBase64, mime_type: mimeType }),
     });
 }
 
@@ -126,5 +126,45 @@ export function extractComplaint(text) {
     return request("/api/ai/complaint", {
         method: "POST",
         body: JSON.stringify({ text }),
+    });
+}
+
+// ── Vision & Multimodal endpoints ──────────────────────────────────────────
+
+export function analyzeVision(imageBase64, mimeType = "image/jpeg", userNotes = "", sectorId = null) {
+    return request("/api/ai/vision-analyze", {
+        method: "POST",
+        body: JSON.stringify({
+            image_base64: imageBase64,
+            mime_type: mimeType,
+            user_notes: userNotes,
+            sector_id: sectorId,
+        }),
+    });
+}
+
+export async function uploadVisionFile(file, notes = "", sector = null) {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (notes) formData.append("notes", notes);
+    if (sector) formData.append("sector", sector);
+
+    const response = await fetch(`${API_BASE_URL}/api/ai/vision-upload`, {
+        method: "POST",
+        body: formData,
+    });
+
+    if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(`API error ${response.status}: ${detail}`);
+    }
+
+    return response.json();
+}
+
+export function confirmVisionReport(reportPayload) {
+    return request("/api/ai/report-from-vision", {
+        method: "POST",
+        body: JSON.stringify(reportPayload),
     });
 }

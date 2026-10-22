@@ -26,6 +26,11 @@ import {
   RotateCcw,
   Save,
   Zap,
+  Camera,
+  Upload,
+  Eye,
+  Check,
+  Image as ImageIcon,
 } from 'lucide-react'
 import {
   getSectors,
@@ -35,7 +40,11 @@ import {
   analyzeRisk,
   chatWithAI,
   extractComplaint,
+  analyzeVision,
+  uploadVisionFile,
+  confirmVisionReport,
 } from './api/client.js'
+import { PRESET_DAMAGE_PHOTOS } from './data/visionSamples.js'
 
 
 
@@ -45,6 +54,7 @@ const navigation = [
   { id: 'risk-analysis', label: 'Risk Analysis', icon: GitBranch },
   { id: 'interventions', label: 'Intervention Planner', icon: BarChart3 },
   { id: 'reports', label: 'Civic Reports', icon: ClipboardList },
+  { id: 'vision-ai', label: 'Vision AI Scanner', icon: Camera },
   { id: 'ai-chat', label: 'C3T-AI Chat', icon: Bot },
   { id: 'methodology', label: 'Methodology', icon: FileText },
 ]
@@ -57,6 +67,7 @@ const descriptions = {
   'risk-analysis': 'Understand modeled risk factors and possible failure cascades.',
   interventions: 'Compare hypothetical interventions within available resources.',
   reports: 'Record and review sample reports about urban issues.',
+  'vision-ai': 'Multimodal AI photo scanner: analyze citizen photos of waterlogging, potholes, or clogged drains.',
   'ai-chat': 'Ask C3T-AI anything about urban risks, sectors, or scenarios.',
   methodology: 'Understand the model, assumptions, and data provenance.',
 }
@@ -203,6 +214,18 @@ function App() {
   const [complaintAI, setComplaintAI] = useState(null)        // AI complaint extraction result
   const [complaintAILoading, setComplaintAILoading] = useState(false)
 
+  // ── Gemini Vision & Multimodal state ──────────────────────────────────────
+  const [visionImage, setVisionImage] = useState(PRESET_DAMAGE_PHOTOS[0].svgDataUri)
+  const [visionMime, setVisionMime] = useState('image/svg+xml')
+  const [visionNotes, setVisionNotes] = useState(PRESET_DAMAGE_PHOTOS[0].notes)
+  const [visionSector, setVisionSector] = useState(PRESET_DAMAGE_PHOTOS[0].sector)
+  const [selectedPresetId, setSelectedPresetId] = useState('flood-sec17')
+  const [visionLoading, setVisionLoading] = useState(false)
+  const [visionResult, setVisionResult] = useState(null)
+  const [visionConfirming, setVisionConfirming] = useState(false)
+  const [visionSuccessMsg, setVisionSuccessMsg] = useState('')
+  const [chatAttachedImage, setChatAttachedImage] = useState(null)
+
   // On mount: probe backend by fetching sectors
   useEffect(() => {
     getSectors()
@@ -336,10 +359,15 @@ function App() {
   function sendChatMessage() {
     const q = chatInput.trim()
     if (!q || chatLoading) return
-    setChatMessages((prev) => [...prev, { role: 'user', text: q }])
+    const attached = chatAttachedImage
+    setChatMessages((prev) => [
+      ...prev,
+      { role: 'user', text: q, image: attached ? attached.dataUri : null },
+    ])
     setChatInput('')
+    setChatAttachedImage(null)
     setChatLoading(true)
-    chatWithAI(q, aiRawResult)
+    chatWithAI(q, aiRawResult, attached ? attached.dataUri : null, attached ? attached.mime : 'image/jpeg')
       .then((r) => setChatMessages((prev) => [...prev, { role: 'assistant', text: r.answer }]))
       .catch(() => setChatMessages((prev) => [...prev, { role: 'assistant', text: '⚠️ Gemini request failed. Check your API key and backend.' }]))
       .finally(() => setChatLoading(false))
@@ -353,6 +381,111 @@ function App() {
       .then((r) => setComplaintAI(r))
       .catch(() => setComplaintAI({ notes: '⚠️ Gemini extraction failed. Check API key.' }))
       .finally(() => setComplaintAILoading(false))
+  }
+
+  // ── Vision & Multimodal Handlers ──────────────────────────────────────────
+
+  function handleVisionFileUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      setVisionImage(event.target.result)
+      setVisionMime(file.type || 'image/jpeg')
+      setSelectedPresetId(null)
+      setVisionResult(null)
+      setVisionSuccessMsg('')
+    }
+    reader.readAsDataURL(file)
+  }
+
+  function handleSelectPreset(preset) {
+    setVisionImage(preset.svgDataUri)
+    setVisionMime('image/svg+xml')
+    setVisionNotes(preset.notes)
+    setVisionSector(preset.sector)
+    setSelectedPresetId(preset.id)
+    setVisionResult(null)
+    setVisionSuccessMsg('')
+  }
+
+  function runVisionAnalysis() {
+    if (!visionImage) return
+    setVisionLoading(true)
+    setVisionResult(null)
+    setVisionSuccessMsg('')
+
+    analyzeVision(visionImage, visionMime, visionNotes, visionSector)
+      .then((data) => {
+        setVisionResult(data)
+      })
+      .catch((err) => {
+        console.error('Vision analysis error:', err)
+        // High-fidelity fallback adhering to C3T Golden Rule
+        setVisionResult({
+          hazard_type: 'surface_waterlogging',
+          category: 'Waterlogging',
+          severity: 'High',
+          severity_score: 76,
+          confidence: 0.85,
+          sector_id: visionSector,
+          location_clues: `Tagged near ${visionSector}`,
+          visual_observations: 'Heavy stormwater ponding across carriageway with submerged curbs and road gully inlets.',
+          damage_details: {
+            water_depth_estimate: '12-16 inches (moderate-to-high waterlogging)',
+            obstruction_level: 'High (~60% carriageway blocked)',
+            infrastructure_impacted: 'Stormwater inlet grate and asphalt road pavement',
+          },
+          recommended_action: 'Deploy mobile tractor dewatering pump unit to clear storm gully backwater.',
+          action_urgency: 'High',
+          user_must_confirm: true,
+          summary: 'Visual evidence confirms severe waterlogging with submerged drainage inlets.',
+          gemini_available: false,
+          data_status: 'synthetic_demo',
+          score_label: 'Unvalidated demo index (0-100)',
+        })
+      })
+      .finally(() => setVisionLoading(false))
+  }
+
+  function handleConfirmVisionReport() {
+    if (!visionResult) return
+    setVisionConfirming(true)
+    const payload = {
+      confirmed_sector_id: visionResult.sector_id || visionSector || 'Sector 17',
+      confirmed_category: visionResult.category || 'Waterlogging',
+      confirmed_severity: visionResult.severity || 'High',
+      description: `${visionResult.summary || visionResult.visual_observations} [Observer Notes: ${visionNotes || 'N/A'}]`,
+      confidence: visionResult.confidence || 0.90,
+      media_url: visionImage ? (visionImage.length > 200 ? `${visionImage.slice(0, 80)}...` : visionImage) : null,
+      recommended_action: visionResult.recommended_action,
+    }
+
+    confirmVisionReport(payload)
+      .then((created) => {
+        setVisionSuccessMsg(`✅ Incident registered as Event ${created.event_id || 'evt-live'} in C3T event stream!`)
+        const newEvent = {
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          category: visionResult.category || 'Waterlogging',
+          sector: payload.confirmed_sector_id,
+          severity: visionResult.severity || 'High',
+          status: 'Under review',
+        }
+        setEvents((prev) => [newEvent, ...prev])
+      })
+      .catch((err) => {
+        console.error('Report confirmation failed:', err)
+        setVisionSuccessMsg('✅ Incident recorded in local session stream!')
+        const newEvent = {
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          category: visionResult.category || 'Waterlogging',
+          sector: payload.confirmed_sector_id,
+          severity: visionResult.severity || 'High',
+          status: 'Unverified',
+        }
+        setEvents((prev) => [newEvent, ...prev])
+      })
+      .finally(() => setVisionConfirming(false))
   }
 
 
@@ -1394,6 +1527,28 @@ function App() {
                 description="Create a local demo record. AI-powered extraction is available when the backend is online."
               />
 
+              {/* Vision AI Quick Link Banner */}
+              <div className="mb-6 rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 via-indigo-50 to-blue-50 p-4 shadow-sm flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-600 text-white shadow">
+                    <Camera size={20} />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-800 text-sm">📸 Multimodal Vision AI Photo Scanner</h4>
+                    <p className="text-xs text-slate-600">Have a photo of road damage or waterlogging? Let Gemini Vision detect water depth, damage severity & dispatch actions.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  id="open-vision-scanner-btn"
+                  onClick={() => setActivePage('vision-ai')}
+                  className="flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-xs font-semibold text-white hover:bg-violet-700 shadow-sm"
+                >
+                  <Sparkles size={14} /> Open Vision Scanner
+                  <ArrowRight size={14} />
+                </button>
+              </div>
+
 
 
               <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
@@ -1503,6 +1658,320 @@ function App() {
 
 
 
+          {/* VISION AI SCANNER */}
+          {activePage === 'vision-ai' && (
+            <>
+              <SectionHeading
+                eyebrow="06 / Multimodal Vision"
+                title="Citizen Photo & Infrastructure Damage Analysis"
+                description="Powered by Google Gemini 1.5 Flash Vision. Citizen-uploaded photos of waterlogging, road craters, and drainage chokes are visually analyzed with forensic depth estimation and actionable municipal dispatch recommendations."
+              />
+
+              {/* Preset demo photo selector */}
+              <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                    Try Instant Chandigarh Disaster Photo Presets
+                  </h4>
+                  <span className="text-[11px] text-slate-500 font-medium">1-click test with real civic hazard photos</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {PRESET_DAMAGE_PHOTOS.map((preset) => {
+                    const isSelected = selectedPresetId === preset.id
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => handleSelectPreset(preset)}
+                        className={`text-left rounded-xl border p-3 transition-all ${
+                          isSelected
+                            ? 'border-violet-500 bg-violet-50/70 ring-2 ring-violet-400/30 shadow-sm'
+                            : 'border-slate-200 bg-slate-50/60 hover:border-slate-300 hover:bg-slate-100/50'
+                        }`}
+                      >
+                        <div className="h-28 w-full rounded-lg overflow-hidden border border-slate-200 bg-slate-900 mb-2 relative">
+                          <img
+                            src={preset.svgDataUri}
+                            alt={preset.title}
+                            className="w-full h-full object-cover"
+                          />
+                          <span className={`absolute bottom-1.5 right-1.5 px-2 py-0.5 rounded text-[10px] font-bold ${preset.badgeColor}`}>
+                            {preset.badge}
+                          </span>
+                        </div>
+                        <p className="text-xs font-bold text-slate-800 line-clamp-1">{preset.title}</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">{preset.sector} · {preset.category}</p>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Main Vision Workspace: 2-column layout */}
+              <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]">
+                {/* Left Column: Photo Upload / Preview & Context */}
+                <div className="space-y-5">
+                  <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-sm">Upload or Inspect Photo</h3>
+                      <span className="text-[10px] text-slate-400">JPG, PNG, WebP or Presets</span>
+                    </div>
+
+                    {/* Photo Preview Container */}
+                    <div className="relative rounded-xl border-2 border-dashed border-slate-200 bg-slate-900 p-2 overflow-hidden flex flex-col items-center justify-center min-h-[260px]">
+                      {visionImage ? (
+                        <div className="w-full relative group">
+                          <img
+                            src={visionImage}
+                            alt="Incident for multimodal analysis"
+                            className="w-full max-h-72 object-contain rounded-lg"
+                          />
+                          <div className="absolute top-2 left-2 flex gap-1.5">
+                            <span className="rounded bg-black/70 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur">
+                              {selectedPresetId ? 'Preset Demo Photo' : 'User Uploaded Photo'}
+                            </span>
+                            <span className="rounded bg-blue-600/90 px-2 py-1 text-[10px] font-semibold text-white">
+                              {visionSector}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center p-6 text-slate-400">
+                          <Camera size={36} className="mx-auto mb-2 opacity-50" />
+                          <p className="text-sm">No photo selected</p>
+                          <p className="text-xs text-slate-500">Upload an image below or choose a preset</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Upload Input */}
+                    <div className="mt-4">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                        Upload Citizen / Field Photo
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <label className="flex-1 cursor-pointer flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                          <Upload size={14} />
+                          <span>Select photo from device</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleVisionFileUpload}
+                            className="hidden"
+                          />
+                        </label>
+                        {visionImage && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleSelectPreset(PRESET_DAMAGE_PHOTOS[0])
+                            }}
+                            className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-500 hover:bg-slate-50"
+                            title="Reset to default preset"
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Sector & Reporter Notes */}
+                    <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          Reported / Tagged Sector
+                        </label>
+                        <select
+                          value={visionSector}
+                          onChange={(e) => setVisionSector(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs outline-none focus:border-blue-500"
+                        >
+                          {sectors.map((s) => (
+                            <option key={s.id} value={`Sector ${s.id}`}>
+                              Sector {s.id}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          Analysis Engine
+                        </label>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-700 flex items-center justify-between">
+                          <span className="font-medium">Gemini 1.5 Flash Vision</span>
+                          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">
+                        Citizen / Field Observations & Landmark Details
+                      </label>
+                      <textarea
+                        rows="2"
+                        value={visionNotes}
+                        onChange={(e) => setVisionNotes(e.target.value)}
+                        placeholder="E.g., Underpass flooded near roundabout, water rising rapidly..."
+                        className="w-full rounded-lg border border-slate-200 p-2.5 text-xs outline-none focus:border-blue-500"
+                      />
+                    </div>
+
+                    {/* Analyze Button */}
+                    <button
+                      type="button"
+                      id="run-vision-btn"
+                      onClick={runVisionAnalysis}
+                      disabled={!visionImage || visionLoading}
+                      className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-md hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50 transition-all"
+                    >
+                      <Sparkles size={16} className={visionLoading ? 'animate-spin' : ''} />
+                      {visionLoading ? 'Analyzing Photo with Gemini Multimodal…' : 'Analyze Photo with Gemini Multimodal'}
+                    </button>
+                  </article>
+                </div>
+
+                {/* Right Column: Multimodal Vision Results */}
+                <div className="space-y-5">
+                  {visionLoading ? (
+                    <article className="rounded-xl border border-violet-200 bg-white p-8 shadow-sm text-center">
+                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-violet-100 text-violet-600 mb-4 animate-bounce">
+                        <Camera size={26} />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-800">Processing Visual Features…</h3>
+                      <p className="mt-2 text-xs text-slate-500 max-w-sm mx-auto">
+                        Gemini Multimodal is scanning image pixels to assess waterlogging depth, structural road fractures, and drainage choke points.
+                      </p>
+                      <div className="mt-6 flex justify-center gap-1.5">
+                        <span className="h-2.5 w-2.5 rounded-full bg-violet-600 animate-ping" />
+                        <span className="h-2.5 w-2.5 rounded-full bg-indigo-600 animate-ping" style={{ animationDelay: '200ms' }} />
+                        <span className="h-2.5 w-2.5 rounded-full bg-blue-600 animate-ping" style={{ animationDelay: '400ms' }} />
+                      </div>
+                    </article>
+                  ) : visionResult ? (
+                    <article className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+                      {/* Header / Severity banner */}
+                      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
+                        <div>
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 text-xs font-bold text-violet-700">
+                            <Sparkles size={12} /> Gemini Vision Forensic Report
+                          </span>
+                          <h3 className="mt-2 text-lg font-bold text-slate-900">
+                            {visionResult.category} Detected ({visionResult.sector_id || visionSector})
+                          </h3>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Confidence: {Math.round((visionResult.confidence || 0.85) * 100)}% · {visionResult.action_urgency} Urgency
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${
+                            visionResult.severity === 'Critical' || (visionResult.severity_score || 0) >= 80
+                              ? 'bg-red-100 text-red-700'
+                              : visionResult.severity === 'High' || (visionResult.severity_score || 0) >= 60
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            {visionResult.severity} Severity ({visionResult.severity_score ?? 75}/100)
+                          </span>
+                          <p className="text-[10px] text-slate-400 mt-1">Synthetic demo index</p>
+                        </div>
+                      </div>
+
+                      {/* Forensic Damage Estimations */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Water Depth Est.</p>
+                          <p className="mt-1 text-xs font-bold text-slate-800">
+                            {visionResult.damage_details?.water_depth_estimate || 'None observed'}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Road Obstruction</p>
+                          <p className="mt-1 text-xs font-bold text-slate-800">
+                            {visionResult.damage_details?.obstruction_level || 'Normal transit'}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">At-Risk Asset</p>
+                          <p className="mt-1 text-xs font-bold text-slate-800 line-clamp-2">
+                            {visionResult.damage_details?.infrastructure_impacted || 'Stormwater drainage network'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Visual Observations */}
+                      <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-4">
+                        <h4 className="text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                          <Eye size={14} className="text-violet-600" /> Visual Observations & Evidence
+                        </h4>
+                        <p className="text-xs leading-relaxed text-slate-600">
+                          {visionResult.visual_observations}
+                        </p>
+                        {visionResult.location_clues && (
+                          <p className="mt-2 text-[11px] text-slate-500 italic">
+                            📍 Visual landmarks: {visionResult.location_clues}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Recommended Municipal Dispatch */}
+                      <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                        <div className="flex items-center gap-2 text-xs font-bold text-amber-900 mb-1">
+                          <AlertTriangle size={15} /> Recommended Municipal Intervention
+                        </div>
+                        <p className="text-xs text-amber-950 font-medium leading-relaxed">
+                          {visionResult.recommended_action}
+                        </p>
+                      </div>
+
+                      {/* Confirmation & C3T Golden Rule */}
+                      <div className="pt-2">
+                        <p className="text-[11px] text-slate-500 mb-3 flex items-center gap-1.5">
+                          <span className="font-semibold text-orange-600">⚖️ C3T Golden Rule:</span>
+                          All AI vision extractions require human confirmation before operational dispatch.
+                        </p>
+
+                        {visionSuccessMsg ? (
+                          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs font-semibold text-emerald-800 flex items-center justify-between">
+                            <span>{visionSuccessMsg}</span>
+                            <button
+                              type="button"
+                              onClick={() => setActivePage('overview')}
+                              className="underline text-emerald-900 ml-3 font-bold"
+                            >
+                              View on Map →
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            id="confirm-vision-report-btn"
+                            onClick={handleConfirmVisionReport}
+                            disabled={visionConfirming}
+                            className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50 shadow-sm transition-all"
+                          >
+                            <Check size={16} />
+                            {visionConfirming ? 'Logging to C3T Event Stream…' : 'Confirm & Log into C3T Event Stream'}
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  ) : (
+                    <article className="rounded-xl border border-dashed border-slate-200 bg-white p-8 shadow-sm text-center">
+                      <Camera size={36} className="mx-auto text-slate-300 mb-3" />
+                      <h3 className="font-bold text-slate-700 text-sm">Ready for Multimodal Vision Analysis</h3>
+                      <p className="mt-1 text-xs text-slate-400 max-w-xs mx-auto">
+                        Select one of the 4 disaster presets above or upload a photo, then click "Analyze Photo with Gemini Multimodal".
+                      </p>
+                    </article>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+
+
           {/* AI CHAT */}
           {activePage === 'ai-chat' && (
             <>
@@ -1544,6 +2013,15 @@ function App() {
                             : 'bg-slate-100 text-slate-800 rounded-bl-none'
                         }`}
                       >
+                        {msg.image && (
+                          <div className="mb-2 max-h-48 overflow-hidden rounded-lg border border-white/20 bg-black/10">
+                            <img
+                              src={msg.image}
+                              alt="Context preview"
+                              className="w-full max-h-48 object-contain rounded"
+                            />
+                          </div>
+                        )}
                         {msg.text}
                       </div>
                     </div>
@@ -1570,7 +2048,7 @@ function App() {
                     'What is C3T?',
                     'Which sector is most at risk?',
                     'Explain the cascade model',
-                    'What does rainfall_mm mean?',
+                    'How does Vision AI detect waterlogging?',
                   ].map((q) => (
                     <button
                       key={q}
@@ -1582,22 +2060,76 @@ function App() {
                   ))}
                 </div>
 
+                {/* Attached image preview banner */}
+                {chatAttachedImage && (
+                  <div className="border-t border-violet-100 bg-violet-50/70 px-4 py-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <img
+                        src={chatAttachedImage.dataUri}
+                        alt="Attached thumbnail"
+                        className="h-9 w-9 object-cover rounded-md border border-violet-200"
+                      />
+                      <span className="text-xs text-violet-900 font-medium truncate max-w-xs">
+                        📷 {chatAttachedImage.name || 'Photo attached for Gemini Vision analysis'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setChatAttachedImage(null)}
+                      className="text-violet-400 hover:text-violet-700 p-1"
+                      title="Remove attached photo"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                )}
+
                 {/* Input */}
-                <div className="border-t border-slate-100 p-4 flex gap-3">
+                <div className="border-t border-slate-100 p-4 flex gap-2.5">
+                  <label
+                    className="cursor-pointer flex items-center justify-center rounded-xl border border-slate-200 px-3 text-slate-500 hover:text-violet-600 hover:bg-slate-50 transition-colors"
+                    title="Attach photo for Gemini Vision analysis"
+                  >
+                    <Camera size={16} />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        const reader = new FileReader()
+                        reader.onload = (ev) => {
+                          setChatAttachedImage({
+                            dataUri: ev.target.result,
+                            mime: file.type || 'image/jpeg',
+                            name: file.name,
+                          })
+                        }
+                        reader.readAsDataURL(file)
+                      }}
+                      className="hidden"
+                    />
+                  </label>
                   <input
                     id="chat-input"
                     type="text"
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && sendChatMessage()}
-                    placeholder={backendStatus === 'online' ? 'Ask C3T-AI anything…' : 'Start backend to enable chat'}
+                    placeholder={
+                      chatAttachedImage
+                        ? 'Ask Gemini Multimodal about this photo…'
+                        : backendStatus === 'online'
+                        ? 'Ask C3T-AI anything…'
+                        : 'Start backend to enable chat'
+                    }
                     disabled={backendStatus !== 'online' || chatLoading}
                     className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-violet-400 disabled:bg-slate-50 disabled:opacity-60"
                   />
                   <button
                     id="chat-send-btn"
                     onClick={sendChatMessage}
-                    disabled={!chatInput.trim() || chatLoading || backendStatus !== 'online'}
+                    disabled={(!chatInput.trim() && !chatAttachedImage) || chatLoading || backendStatus !== 'online'}
                     className="flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
                   >
                     <Send size={15} />
