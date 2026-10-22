@@ -135,3 +135,10 @@ The frontend dashboard will be available at [http://localhost:5173](http://local
 - `POST /api/stress-test` - Run scenario simulation & cascade graph
 - `POST /api/optimize` - Compare candidate interventions under budget/team constraints
 - `GET /api/scenarios` · `POST /api/scenarios` - Save & load stress scenarios
+- `GET /api/ai/status` - Gemini AI & Multimodal Vision status
+- `POST /api/ai/vision-analyze` - Gemini Multimodal photo analysis (damage, depth, obstruction, dispatch)
+- `POST /api/ai/vision-upload` - Multipart photo upload for citizen mobile intake
+- `POST /api/ai/report-from-vision` - Confirm & log vision incident to C3T event stream
+- `POST /api/ai/analyze` - Plain-English stress-test narrative generation
+- `POST /api/ai/chat` - Context-aware and visual Q&A with C3T-AI
+- `POST /api/ai/complaint` - Gemini-powered complaint text classification
