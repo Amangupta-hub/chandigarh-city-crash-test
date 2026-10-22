@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 # Initialise Gemini client once at import time
 # ---------------------------------------------------------------------------
 
+_GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 _DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
 
 if HAS_GENAI and _GEMINI_API_KEY:
