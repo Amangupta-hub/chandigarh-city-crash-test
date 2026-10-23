@@ -1236,10 +1236,10 @@ function App() {
                     {saveStatus === 'saving'
                       ? 'Saving to backend…'
                       : saveStatus === 'saved'
-                      ? 'Saved to backend and this session.'
-                      : saveStatus === 'error'
-                      ? 'Session saved (backend save failed).'
-                      : 'Scenario saved for this session.'}
+                        ? 'Saved to backend and this session.'
+                        : saveStatus === 'error'
+                          ? 'Session saved (backend save failed).'
+                          : 'Scenario saved for this session.'}
                   </p>
                 )}
 
@@ -1683,11 +1683,10 @@ function App() {
                         key={preset.id}
                         type="button"
                         onClick={() => handleSelectPreset(preset)}
-                        className={`text-left rounded-xl border p-3 transition-all ${
-                          isSelected
+                        className={`text-left rounded-xl border p-3 transition-all ${isSelected
                             ? 'border-violet-500 bg-violet-50/70 ring-2 ring-violet-400/30 shadow-sm'
                             : 'border-slate-200 bg-slate-50/60 hover:border-slate-300 hover:bg-slate-100/50'
-                        }`}
+                          }`}
                       >
                         <div className="h-28 w-full rounded-lg overflow-hidden border border-slate-200 bg-slate-900 mb-2 relative">
                           <img
@@ -1864,13 +1863,12 @@ function App() {
                           </p>
                         </div>
                         <div className="text-right">
-                          <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${
-                            visionResult.severity === 'Critical' || (visionResult.severity_score || 0) >= 80
+                          <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${visionResult.severity === 'Critical' || (visionResult.severity_score || 0) >= 80
                               ? 'bg-red-100 text-red-700'
                               : visionResult.severity === 'High' || (visionResult.severity_score || 0) >= 60
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-emerald-100 text-emerald-800'
-                          }`}>
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}>
                             {visionResult.severity} Severity ({visionResult.severity_score ?? 75}/100)
                           </span>
                           <p className="text-[10px] text-slate-400 mt-1">Synthetic demo index</p>
@@ -1989,7 +1987,7 @@ function App() {
                   </div>
                   <div>
                     <p className="text-sm font-bold text-white">C3T-AI</p>
-                    <p className="text-[10px] text-violet-200">Powered by Google Gemini 1.5 Flash</p>
+                    <p className="text-[10px] text-violet-200">Powered by Google Gemini Flash. Multimodal.</p>
                   </div>
                   <span className="ml-auto flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 text-[10px] font-semibold text-white">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
@@ -2007,11 +2005,10 @@ function App() {
                         </div>
                       )}
                       <div
-                        className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-6 ${
-                          msg.role === 'user'
+                        className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-6 ${msg.role === 'user'
                             ? 'bg-[#126bdf] text-white rounded-br-none'
                             : 'bg-slate-100 text-slate-800 rounded-bl-none'
-                        }`}
+                          }`}
                       >
                         {msg.image && (
                           <div className="mb-2 max-h-48 overflow-hidden rounded-lg border border-white/20 bg-black/10">
@@ -2120,8 +2117,8 @@ function App() {
                       chatAttachedImage
                         ? 'Ask Gemini Multimodal about this photo…'
                         : backendStatus === 'online'
-                        ? 'Ask C3T-AI anything…'
-                        : 'Start backend to enable chat'
+                          ? 'Ask C3T-AI anything…'
+                          : 'Start backend to enable chat'
                     }
                     disabled={backendStatus !== 'online' || chatLoading}
                     className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-violet-400 disabled:bg-slate-50 disabled:opacity-60"
